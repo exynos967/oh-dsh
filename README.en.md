@@ -459,7 +459,10 @@ packages macOS arm64, macOS x64, Linux x64, and Windows x64 in parallel. Each
 platform produces the desktop package (DMG/ZIP, AppImage/deb, Windows ZIP)
 and the Oh-DSH-Web package (tar.gz/ZIP). After every job passes, a publish
 job attaches all artifacts to a same-named GitHub Release via
-`gh release create`; any failure blocks the release.
+`gh release create`; any failure blocks the release. You can also click
+Run workflow in Actions: that packages and uploads artifacts for download,
+but does not create a GitHub Release (so a branch name cannot become a
+release).
 
 [`dsh-source.json`](dsh-source.json) is maintained by
 [`.github/workflows/sync-upstream.yml`](.github/workflows/sync-upstream.yml).

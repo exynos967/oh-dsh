@@ -12,8 +12,11 @@ import {
   readlinkSync,
   readdirSync,
   realpathSync,
+  renameSync,
   rmSync,
+  statSync,
   symlinkSync,
+  unlinkSync,
   writeFileSync,
 } from 'node:fs'
 import {
@@ -27,6 +30,8 @@ import {
 } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { resolveDshSource, resolvePinnedPnpm } from './dsh-source.mjs'
+import { extractArchive } from './extract-archive.mjs'
+import { resolveNodeTarget } from './node-target.mjs'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const dshSource = resolveDshSource()
@@ -35,16 +40,13 @@ const runtime = join(stage, 'dsh-runtime')
 const nodeRuntime = join(stage, 'node-runtime')
 const cache = join(root, '.cache')
 const nodeVersion = process.env.DSH_DESKTOP_NODE_VERSION ?? '26.0.0'
-// Node.js distribution triples use `linux`/`darwin`/`win` and `x64`/`arm64`.
-// Stage a Node runtime for the current host unless an override asks for a
-// specific platform (used for cross-packaging).
-const nodePlatform = process.env.DSH_DESKTOP_NODE_PLATFORM
-  ?? { darwin: 'darwin', linux: 'linux', win32: 'win' }[process.platform]
-  ?? process.platform
-const nodeArch = process.env.DSH_DESKTOP_NODE_ARCH
-  ?? { arm64: 'arm64', x64: 'x64' }[process.arch]
-  ?? process.arch
-const isWindowsNode = nodePlatform === 'win'
+const {
+  platform: nodePlatform,
+  arch: nodeArch,
+  isWindowsTarget: isWindowsNode,
+  hostPlatform,
+} = resolveNodeTarget()
+const flattenWindowsRuntime = process.platform === 'win32'
 const nodeFolder = `node-v${nodeVersion}-${nodePlatform}-${nodeArch}`
 const nodeArchiveName = `${nodeFolder}.${isWindowsNode ? 'zip' : 'tar.gz'}`
 const nodeArchive = join(cache, nodeArchiveName)
@@ -112,12 +114,7 @@ function ensureNodeRuntime() {
     const extraction = join(cache, `.node-extract-${String(process.pid)}`)
     rmSync(extraction, { recursive: true, force: true })
     mkdirSync(extraction, { recursive: true })
-    if (isWindowsNode) {
-      // bsdtar on the Windows runner unpacks zip archives.
-      run('tar', ['-xf', nodeArchive, '-C', extraction])
-    } else {
-      run('tar', ['-xzf', nodeArchive, '-C', extraction])
-    }
+    extractArchive(nodeArchive, extraction)
     rmSync(nodeCache, { recursive: true, force: true })
     cpSync(join(extraction, nodeFolder), nodeCache, {
       recursive: true,
@@ -233,7 +230,19 @@ function findDeployedPackage(sourceTarget) {
   if (typeof manifest.name !== 'string' || typeof manifest.version !== 'string') return undefined
   const key = `${manifest.name}@${manifest.version}`
   if (deployedPackageTargets.has(key)) return deployedPackageTargets.get(key)
+  const flat = join(runtime, 'node_modules', ...manifest.name.split('/'))
+  if (existsSync(join(flat, 'package.json'))) {
+    const deployed = JSON.parse(readFileSync(join(flat, 'package.json'), 'utf8'))
+    if (deployed.name === manifest.name && deployed.version === manifest.version) {
+      deployedPackageTargets.set(key, flat)
+      return flat
+    }
+  }
   const store = join(runtime, 'node_modules', '.pnpm')
+  if (!existsSync(store)) {
+    deployedPackageTargets.set(key, undefined)
+    return undefined
+  }
   for (const entry of readdirSync(store, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue
     const candidate = join(store, entry.name, 'node_modules', ...manifest.name.split('/'))
@@ -465,6 +474,149 @@ function assertSelfContained(rootPath, label) {
   })
   if (failures.length > 0) {
     throw new Error(`${label} contains non-portable symlinks:\n${failures.slice(0, 40).join('\n')}`)
+  }
+}
+
+function isDirectoryLink(link) {
+  try {
+    return statSync(link).isDirectory()
+  } catch {
+    return true
+  }
+}
+
+function removeReplacedPath(path) {
+  if (!existsSync(path)) return
+  if (lstatSync(path).isSymbolicLink()) {
+    unlinkSync(path)
+    return
+  }
+  rmSync(path, { recursive: true, force: true })
+}
+
+function copyWithoutLinks(source, dest) {
+  const temporary = `${dest}.materialize-${String(process.pid)}`
+  rmSync(temporary, { recursive: true, force: true })
+  mkdirSync(dirname(temporary), { recursive: true })
+  if (lstatSync(source).isDirectory()) {
+    cpSync(source, temporary, {
+      recursive: true,
+      preserveTimestamps: true,
+      filter: candidate => {
+        if (candidate === source) return true
+        try {
+          return !lstatSync(candidate).isSymbolicLink()
+        } catch {
+          return false
+        }
+      },
+    })
+  } else {
+    copyFileSync(source, temporary)
+  }
+  removeReplacedPath(dest)
+  mkdirSync(dirname(dest), { recursive: true })
+  try {
+    renameSync(temporary, dest)
+  } catch (error) {
+    if (error.code !== 'EPERM' && error.code !== 'EACCES') throw error
+    cpSync(temporary, dest, { recursive: true, preserveTimestamps: true })
+    rmSync(temporary, { recursive: true, force: true })
+  }
+}
+
+/**
+ * Hoisted `pnpm deploy` is junction-free but drops `link:` vendor overrides
+ * such as `@deepseek-ai/cosmokit`. Keep isolated deploy + the rewrite
+ * passes, then hoist unique realpaths into `node_modules/<name>` and delete
+ * the leftover junctions so packaging tools cannot follow workspace cycles.
+ */
+function flattenWindowsLinks(rootPath) {
+  if (!flattenWindowsRuntime) return
+  const links = []
+  walk(rootPath, link => { links.push(link) })
+  const directoryLinks = links.filter(link => isDirectoryLink(link))
+  console.log(
+    `Windows staging: ${directoryLinks.length} directory links / ${links.length} total links under ${rootPath}`,
+  )
+  if (links.length === 0) return
+
+  const groups = new Map()
+  for (const link of directoryLinks) {
+    const real = realpathSync(link)
+    const current = groups.get(real)
+    if (current === undefined) groups.set(real, [link])
+    else current.push(link)
+  }
+
+  const named = new Map()
+  const unnamed = []
+  for (const [real, groupLinks] of groups) {
+    const manifestPath = join(real, 'package.json')
+    if (!existsSync(manifestPath)) {
+      unnamed.push({ real, links: groupLinks })
+      continue
+    }
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+    if (typeof manifest.name !== 'string' || manifest.name === '') {
+      unnamed.push({ real, links: groupLinks })
+      continue
+    }
+    const version = typeof manifest.version === 'string' ? manifest.version : ''
+    const variants = named.get(manifest.name) ?? []
+    variants.push({ version, real, links: groupLinks })
+    named.set(manifest.name, variants)
+  }
+
+  let hoisted = 0
+  let nested = 0
+  for (const [name, variants] of named) {
+    variants.sort((left, right) => right.links.length - left.links.length)
+    const winner = variants[0]
+    const dest = join(rootPath, 'node_modules', ...name.split('/'))
+    const destExists = existsSync(dest)
+    const destIsLink = destExists && lstatSync(dest).isSymbolicLink()
+    if (!destExists || destIsLink || realpathSync(dest) !== winner.real) {
+      copyWithoutLinks(winner.real, dest)
+    }
+    hoisted += 1
+    for (const variant of variants) {
+      const samePackage = variant.version === winner.version
+      for (const link of variant.links) {
+        if (resolve(link) === resolve(dest)) continue
+        if (samePackage) {
+          removeReplacedPath(link)
+          continue
+        }
+        copyWithoutLinks(variant.real, link)
+        nested += 1
+      }
+    }
+  }
+
+  for (const { real, links: groupLinks } of unnamed) {
+    for (const link of groupLinks) {
+      copyWithoutLinks(real, link)
+      nested += 1
+    }
+  }
+
+  for (const link of links) {
+    if (!existsSync(link) || !lstatSync(link).isSymbolicLink()) continue
+    copyWithoutLinks(realpathSync(link), link)
+  }
+
+  console.log(`Windows staging: hoisted ${hoisted} packages, materialized ${nested} nested copies under ${rootPath}`)
+}
+
+function assertNoDirectoryLinks(rootPath, label) {
+  if (!flattenWindowsRuntime) return
+  const failures = []
+  walk(rootPath, link => {
+    if (isDirectoryLink(link)) failures.push(`${link} -> ${readlinkSync(link)}`)
+  })
+  if (failures.length > 0) {
+    throw new Error(`${label} contains directory junctions:\n${failures.slice(0, 40).join('\n')}`)
   }
 }
 
@@ -708,21 +860,21 @@ for (const required of [
 
 rmSync(stage, { recursive: true, force: true })
 mkdirSync(stage, { recursive: true })
-  const pnpm = resolvePinnedPnpm(dshSource)
-  console.log('Deploying pinned DSH runtime (copy import mode)')
-  run(process.execPath, [
-    pnpm.cliEntry,
-    '--config.package-import-method=copy',
-    '--ignore-scripts',
+const pnpm = resolvePinnedPnpm(dshSource)
+console.log('Deploying pinned DSH runtime (copy import mode)')
+run(process.execPath, [
+  pnpm.cliEntry,
+  '--config.package-import-method=copy',
+  '--ignore-scripts',
   '--filter', '@deepseek-ai/dsh',
   'deploy', '--prod', '--legacy', runtime,
-  ], {
-    cwd: dshSource,
-    env: {
-      ...process.env,
-      PATH: `${pnpm.binDir}${delimiter}${process.env.PATH ?? ''}`,
-    },
-  })
+], {
+  cwd: dshSource,
+  env: {
+    ...process.env,
+    PATH: `${pnpm.binDir}${delimiter}${process.env.PATH ?? ''}`,
+  },
+})
 
 console.log('Relinking workspace packages')
 rewriteWorkspaceLinks()
@@ -733,13 +885,16 @@ copyFileSync(join(dshSource, 'THIRD_PARTY_NOTICES.md'), join(runtime, 'THIRD_PAR
 restoreExecutableHelpers()
 console.log('Normalizing runtime links')
 normalizeRuntimeLinks()
+flattenWindowsLinks(runtime)
 assertSelfContained(runtime, 'DSH runtime')
+assertNoDirectoryLinks(runtime, 'DSH runtime')
 ensureNodeRuntime()
+flattenWindowsLinks(nodeRuntime)
 assertSelfContained(nodeRuntime, 'Node runtime')
+assertNoDirectoryLinks(nodeRuntime, 'Node runtime')
 ensureLinuxPtyBuild()
 
 const stagedNode = join(nodeRuntime, isWindowsNode ? 'node.exe' : join('bin', 'node'))
-const hostPlatform = { darwin: 'darwin', linux: 'linux', win: 'win32' }[nodePlatform]
 if (hostPlatform === process.platform) {
   run(stagedNode, [join(runtime, 'lib', 'bin.js'), '--version'], {
     cwd: runtime,

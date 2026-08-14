@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { createArchive } from './extract-archive.mjs'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const requestedArch = process.argv[2]
@@ -42,11 +43,6 @@ if (result.status !== 0) process.exit(result.status ?? 1)
 // bsdtar, which streams instead of materializing one giant argument string.
 const version = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version
 const archive = join(root, 'release', `Oh-DSH-Desktop-${version}-x64.zip`)
-const zip = spawnSync('tar', ['-a', '-cf', archive, 'win-unpacked'], {
-  cwd: join(root, 'release'),
-  stdio: 'inherit',
-})
-if (zip.error !== undefined) throw zip.error
-if (zip.status !== 0) process.exit(zip.status ?? 1)
+createArchive(archive, ['win-unpacked'], { cwd: join(root, 'release') })
 if (!existsSync(archive)) throw new Error(`Windows archive was not produced: ${archive}`)
 console.log(`Packaged Oh-DSH-Desktop ${version}: ${archive}`)

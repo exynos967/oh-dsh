@@ -10,6 +10,7 @@ import {
 } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { extractArchive } from './extract-archive.mjs'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -76,7 +77,7 @@ export function resolvePinnedPnpm(source) {
     const extraction = join(cache, `.pnpm-extract-${String(process.pid)}`)
     rmSync(extraction, { recursive: true, force: true })
     mkdirSync(extraction, { recursive: true })
-    run('tar', ['-xzf', archive, '-C', extraction])
+    extractArchive(archive, extraction)
     rmSync(installRoot, { recursive: true, force: true })
     mkdirSync(dirname(cliRoot), { recursive: true })
     renameSync(join(extraction, 'package'), cliRoot)

@@ -11,15 +11,15 @@ import {
 } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { createArchive } from './extract-archive.mjs'
+import { resolveNodeTarget } from './node-target.mjs'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const stage = join(root, '.stage')
 const release = join(root, 'release')
 const version = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).version
-const platform = process.env.DSH_DESKTOP_NODE_PLATFORM ?? process.platform
-const arch = process.env.DSH_DESKTOP_NODE_ARCH ?? process.arch
+const { platform, arch, isWindowsTarget, hostPlatform } = resolveNodeTarget()
 const isWindowsHost = process.platform === 'win32'
-const isWindowsTarget = platform === 'win'
 const stagedNode = join(stage, 'node-runtime', isWindowsTarget ? 'node.exe' : join('bin', 'node'))
 const dirName = `oh-dsh-web-${version}-${platform}-${arch}`
 const packageDir = join(release, dirName)
@@ -150,10 +150,9 @@ const tarball = join(release, `${dirName}.tar.gz`)
 const zip = join(release, `${dirName}.zip`)
 rmSync(tarball, { force: true })
 rmSync(zip, { force: true })
-run('tar', ['-czf', tarball, dirName], { cwd: release })
+createArchive(tarball, [dirName], { cwd: release })
 if (isWindowsHost) {
-  // bsdtar builds zip archives from the .zip suffix.
-  run('tar', ['-a', '-cf', zip, dirName], { cwd: release })
+  createArchive(zip, [dirName], { cwd: release })
 } else {
   run('zip', ['-qry', zip, dirName], { cwd: release })
 }
@@ -164,7 +163,6 @@ console.log(`  ${zip}`)
 
 // Self-verify the packaged layout exactly like the staged one.
 const smoke = join(root, 'scripts', 'smoke-web.mjs')
-const hostPlatform = { darwin: 'darwin', linux: 'linux', win: 'win32' }[platform]
 if (hostPlatform === process.platform) {
   const verify = spawnSync(process.execPath, [smoke, 'release'], {
     cwd: root,

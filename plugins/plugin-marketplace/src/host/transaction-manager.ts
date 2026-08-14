@@ -2,11 +2,14 @@ import { createHash, randomUUID } from 'node:crypto'
 import {
   cpSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   readFileSync,
   readdirSync,
   renameSync,
+  rmdirSync,
   rmSync,
+  unlinkSync,
   writeFileSync,
 } from 'node:fs'
 import { dirname, join, relative, resolve, sep } from 'node:path'
@@ -460,9 +463,34 @@ function ensureWithin(parent: string, candidate: string): void {
   }
 }
 
+function isEnoent(error: unknown): boolean {
+  return error instanceof Error && 'code' in error && error.code === 'ENOENT'
+}
+
+/** Unlink junctions/symlinks instead of walking into them. */
+function removeTree(path: string): void {
+  let stat
+  try {
+    stat = lstatSync(path)
+  } catch (error) {
+    if (isEnoent(error)) return
+    throw error
+  }
+  if (stat.isSymbolicLink()) {
+    unlinkSync(path)
+    return
+  }
+  if (stat.isDirectory()) {
+    for (const entry of readdirSync(path)) removeTree(join(path, entry))
+    rmdirSync(path)
+    return
+  }
+  unlinkSync(path)
+}
+
 function removeWithin(parent: string, candidate: string): void {
   ensureWithin(parent, candidate)
-  rmSync(candidate, { force: true, recursive: true })
+  removeTree(candidate)
 }
 
 function copyDirectory(source: string, target: string): void {
@@ -470,6 +498,7 @@ function copyDirectory(source: string, target: string): void {
   if (existsSync(target)) throw new Error(`candidate profile already exists: ${target}`)
   mkdirSync(dirname(target), { recursive: true, mode: 0o700 })
   cpSync(source, target, {
+    filter: src => !relative(source, src).split(sep).includes('node_modules'),
     preserveTimestamps: true,
     recursive: true,
     verbatimSymlinks: true,
@@ -540,7 +569,7 @@ export class PluginMarketplaceManager {
     this.#previewsRoot = join(this.#root, 'previews')
     this.#rollbacksRoot = join(this.#root, 'rollbacks')
     this.#rollbackStatePath = join(this.#rollbacksRoot, 'current.json')
-    rmSync(this.#previewsRoot, { force: true, recursive: true })
+    if (existsSync(this.#previewsRoot)) removeTree(this.#previewsRoot)
     mkdirSync(this.#previewsRoot, { recursive: true, mode: 0o700 })
     mkdirSync(this.#rollbacksRoot, { recursive: true, mode: 0o700 })
     this.#rollback = this.readRollback()

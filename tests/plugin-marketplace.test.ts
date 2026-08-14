@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, win32 } from 'node:path'
+import { dirname, join, win32 } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { parseMarketplaceCatalog } from '../plugins/plugin-marketplace/src/catalog.ts'
@@ -216,6 +216,32 @@ function fixture(): {
     runtime,
   }
 }
+
+test('startup preview cleanup does not delete through junctions into the packaged runtime', () => {
+  const appDataPath = mkdtempSync(join(tmpdir(), 'oh-dsh-marketplace-'))
+  try {
+    const dshHome = join(appDataPath, 'dsh')
+    mkdirSync(join(dshHome, 'profiles', 'desktop'), { recursive: true })
+    const runtime = join(appDataPath, 'packaged-runtime')
+    mkdirSync(join(runtime, 'lib'), { recursive: true })
+    const marker = join(runtime, 'lib', 'bin.js')
+    writeFileSync(marker, 'keep\n')
+    const trap = join(appDataPath, 'plugin-marketplace', 'previews', 'trap', 'node_modules', 'dsh')
+    mkdirSync(dirname(trap), { recursive: true })
+    symlinkSync(runtime, trap, process.platform === 'win32' ? 'junction' : 'dir')
+    new PluginMarketplaceManager({
+      appDataPath,
+      dshHome,
+      platform: new FakePlatform(),
+      profile: 'desktop',
+      runtime: new FakeRuntime(),
+    })
+    assert.equal(readFileSync(marker, 'utf8'), 'keep\n')
+    assert.equal(existsSync(trap), false)
+  } finally {
+    rmSync(appDataPath, { recursive: true, force: true })
+  }
+})
 
 test('catalog parser keeps safe entries and labels unsupported managers', () => {
   const catalog = parseMarketplaceCatalog(catalogDocument())
@@ -674,6 +700,7 @@ test('bundle preview remains isolated until apply and supports undo', async () =
     assert.equal(setup.runtime.liveStarts, 1)
 
     snapshot = await setup.manager.dispatch({ type: 'undo' })
+    assert.equal(snapshot.error, null, snapshot.error ?? '')
     assert.equal(snapshot.undoAvailable, false)
     assert.deepEqual(snapshot.installed, [])
     const restored = JSON.parse(readFileSync(join(setup.profileDir, 'package.json'), 'utf8'))

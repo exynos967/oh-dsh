@@ -16,7 +16,7 @@ import { ensureWebProfile, WEB_PROFILE } from '../src/profile.ts'
 import { bundledRuntimePaths, runtimeSearchPath } from '../src/runtime-paths.ts'
 import { resolveProductVersion } from '../src/version.ts'
 import { resolveNodeDistributionPlatform } from '../src/node-platform.ts'
-import { terminalSmokeInput } from './terminal-smoke-input.mjs'
+import { attachTerminalSmoke } from './terminal-smoke-input.mjs'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -342,37 +342,8 @@ try {
   terminalUrl.searchParams.set('sessionId', sidebarScope.sessionId)
   terminalUrl.searchParams.set('tab', 'smoke-terminal')
   terminalUrl.searchParams.set('cwd', smokeRoot)
-  await new Promise((resolveTerminal, rejectTerminal) => {
-    const socket = new WebSocket(terminalUrl)
-    let output = ''
-    let settled = false
-    const terminalTimeout = setTimeout(() => {
-      finish(new Error(`terminal smoke timed out; output=${JSON.stringify(output)}`))
-    }, 10_000)
-    const finish = (error) => {
-      if (settled) return
-      settled = true
-      clearTimeout(terminalTimeout)
-      socket.close()
-      if (error === undefined) resolveTerminal()
-      else rejectTerminal(error)
-    }
-    socket.addEventListener('open', () => {
-      socket.send(JSON.stringify({ type: 'resize', cols: 80, rows: 24 }))
-      socket.send(terminalSmokeInput('OH_DSH_WEB_TERMINAL_SMOKE'))
-    })
-    socket.addEventListener('message', (event) => {
-      output += String(event.data)
-      if (output.includes('OH_DSH_WEB_TERMINAL_SMOKE')) {
-        socket.send(JSON.stringify({ type: 'close' }))
-        finish()
-      }
-    })
-    socket.addEventListener('error', () => { finish(new Error('terminal websocket connection failed')) })
-    socket.addEventListener('close', () => {
-      if (!settled) finish(new Error(`terminal websocket closed early; output=${JSON.stringify(output)}`))
-    })
-  })
+  const socket = new WebSocket(terminalUrl)
+  await attachTerminalSmoke(socket, { marker: 'OH_DSH_WEB_TERMINAL_SMOKE' })
 
   console.log(`Oh-DSH Web profile ready: ${base.href}`)
   console.log(`Web composition verified: ${dump.stdout.split('\n').length} dump lines`)

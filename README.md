@@ -64,7 +64,7 @@ Summary、Sidebar 与 PTY 终端能力。见 [Oh-DSH-Web 发行版](#oh-dsh-web-
 
 ## 主要能力
 
-- 自包含的 Apple Silicon / Intel macOS 应用与安装包、Linux x64 AppImage / deb（Windows x64 发行包在完善中）。
+- 自包含的 Apple Silicon / Intel macOS 应用与安装包、Linux x64 AppImage / deb、Windows x64 ZIP。
 - 多标签 PTY Terminal、逐提交/逐行 Review、Browser 和 Files。
 - Review 评论可汇总进消息输入框，直接交给 Agent 处理。
 - Pinned Summary、可展开 Side Panel 与原生窗口控制。
@@ -417,22 +417,28 @@ release/
 ## GitHub Actions 发行流程
 
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml) 在每次 PR 与 main
-push 时,于 macOS arm64、macOS x64、Linux x64、Windows x64 四个平台并行跑
+push 时调用 [`.github/workflows/checks.yml`](.github/workflows/checks.yml)，
+于 macOS arm64、macOS x64、Linux x64、Windows x64 四个平台并行跑
 安装、typecheck、测试与构建,保证任一形态的编译链路在所有目标平台上都被
-覆盖;另有一个 Runtime smoke job 在 Linux 上完整构建并 stage 固定 DSH
-runtime,再跑 desktop 与 web 两个 profile 的组装冒烟(smoke:runtime /
-smoke:web),验证皮肤、Sidebar、workspace Git 与 PTY 终端真实可用。
+覆盖; Runtime smoke 在 Linux 与 Windows 上完整构建并 stage 固定 DSH
+runtime。Linux 再跑 desktop 与 web 两个 profile 的组装冒烟
+(smoke:runtime / smoke:web)；Windows 验证 junction-free staging 与
+smoke:web，跳过 Electron GUI smoke。
 
 推送 `v*` tag 后，[`.github/workflows/release.yml`](.github/workflows/release.yml)
-会在 runner 上并行打包 macOS arm64、macOS x64 与 Linux x64，每个平台
-同时产出桌面发行包（DMG/ZIP、AppImage/deb）与 Oh-DSH-Web 发行包
-（tar.gz/ZIP）。全部 job 通过后，publish job 会用
+会在 runner 上并行打包 macOS arm64、macOS x64、Linux x64 与 Windows x64，
+每个平台同时产出桌面发行包（DMG/ZIP、AppImage/deb、Windows ZIP）与
+Oh-DSH-Web 发行包（tar.gz/ZIP）。全部 job 通过后，publish job 会用
 `gh release create` 把产物挂到同名 GitHub Release；任何失败都会阻止发布。
 
-Windows x64 在 CI 矩阵中覆盖了安装、typecheck、测试与构建，但发行包暂缓：
-固定版本的 DSH runtime 在 Windows 上仍以 pnpm junction 布局存在，其中
-workspace 之间的环会被打包工具跟随，直到超出 Windows 路径长度上限。待
-staging 在 Windows 上产出无 junction 的 runtime 后再启用 `dist:win`。
+[`dsh-source.json`](dsh-source.json) 由
+[`.github/workflows/sync-upstream.yml`](.github/workflows/sync-upstream.yml)
+每日自动维护：解析上游 `deepseek-ai/deepseek-harness` 的 `master` HEAD，
+若 commit 变化则用同一套 `checks.yml` 全平台验证，全绿后由
+`github-actions[bot]` 写入 pin 并推到 `main`。验证失败会按 commit 去重
+打开 `upstream-sync` issue，不会改写 pin。bot 推送的 bump commit 不会再次
+触发 CI——验证已经在写入前完成。本地也可以跑
+`node scripts/set-dsh-source.mjs --dry-run` 查看将要同步的 revision。
 
 上传前也可以在本机验证：
 
@@ -455,6 +461,15 @@ pnpm run typecheck
 pnpm test
 pnpm run dist:linux
 pnpm run smoke:app:linux
+```
+
+Windows 上对应验证：
+
+```sh
+pnpm run typecheck
+pnpm test
+pnpm run dist:win
+pnpm run dist:web
 ```
 
 workspace package 与下载说明必须保持同一版本。推送对应的 `v*` tag 后，

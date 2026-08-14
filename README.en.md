@@ -72,7 +72,7 @@ macOS, Linux, and Windows.
 
 ## Capabilities
 
-- Self-contained Apple Silicon / Intel macOS and Linux x64 applications and installers; the Windows x64 package is still in progress.
+- Self-contained Apple Silicon / Intel macOS, Linux x64, and Windows x64 applications and installers.
 - Multi-tab PTY Terminal, commit/line Review, Browser, and Files.
 - Review comments attach to the message composer for direct Agent handling.
 - Pinned Summary, expandable Side Panel, and native window controls.
@@ -443,27 +443,34 @@ The bundled Node runtime defaults to the build machine's platform. Set
 
 ## GitHub Actions release flow
 
-[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs install, type
-check, tests, and the build in parallel on macOS arm64, macOS x64, Linux x64,
-and Windows x64 for every PR and main push, covering the compile path of
-every surface on every target platform. A separate Runtime smoke job builds
-and stages the pinned DSH runtime on Linux and then runs the assembled
-desktop and web profiles (smoke:runtime / smoke:web), verifying skins, the
-Sidebar, workspace Git, and the PTY terminal end to end.
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) calls
+[`.github/workflows/checks.yml`](.github/workflows/checks.yml) on every PR
+and main push. It runs install, type check, tests, and the build in parallel
+on macOS arm64, macOS x64, Linux x64, and Windows x64, covering the compile
+path of every surface on every target platform. Runtime smoke builds and
+stages the pinned DSH runtime on Linux and Windows. Linux then runs the
+assembled desktop and web profiles (smoke:runtime / smoke:web); Windows
+verifies junction-free staging and smoke:web, and skips the Electron GUI
+smoke.
 
 Pushing a `v*` tag runs
 [`.github/workflows/release.yml`](.github/workflows/release.yml), which
-packages macOS arm64, macOS x64, and Linux x64 in parallel. Each platform
-produces the desktop package (DMG/ZIP, AppImage/deb) and the Oh-DSH-Web
-package (tar.gz/ZIP). After every job passes, a publish job attaches all
-artifacts to a same-named GitHub Release via `gh release create`; any failure
-blocks the release.
+packages macOS arm64, macOS x64, Linux x64, and Windows x64 in parallel. Each
+platform produces the desktop package (DMG/ZIP, AppImage/deb, Windows ZIP)
+and the Oh-DSH-Web package (tar.gz/ZIP). After every job passes, a publish
+job attaches all artifacts to a same-named GitHub Release via
+`gh release create`; any failure blocks the release.
 
-Windows x64 is covered in the CI matrix (install, type check, tests, and the
-build), but release packaging is deferred: the pinned DSH runtime still uses
-pnpm's junction layout on Windows, and the cycles between workspace packages
-are followed by packaging tools until Windows path limits fail. Enable
-`dist:win` once staging produces a junction-free runtime on Windows.
+[`dsh-source.json`](dsh-source.json) is maintained by
+[`.github/workflows/sync-upstream.yml`](.github/workflows/sync-upstream.yml).
+Once a day it resolves the `master` HEAD of
+`deepseek-ai/deepseek-harness`. If the commit changed, the same `checks.yml`
+suite runs on every platform; on success `github-actions[bot]` writes the pin
+and pushes to `main`. A failure opens a deduplicated `upstream-sync` issue
+and leaves the pin unchanged. The bot push does not re-trigger CI — the
+revision was already verified. Locally,
+`node scripts/set-dsh-source.mjs --dry-run` shows the revision that would be
+synced.
 
 You can still verify locally before upload:
 
@@ -486,6 +493,15 @@ pnpm run typecheck
 pnpm test
 pnpm run dist:linux
 pnpm run smoke:app:linux
+```
+
+On Windows, verify with:
+
+```sh
+pnpm run typecheck
+pnpm test
+pnpm run dist:win
+pnpm run dist:web
 ```
 
 Workspace package metadata and download instructions must use the same

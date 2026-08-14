@@ -1,0 +1,112 @@
+name: Sync upstream DSH
+
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+    inputs:
+      revision:
+        description: '40-character commit, or master for the current upstream HEAD'
+        required: false
+        default: 'master'
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    name: Resolve upstream revision
+    runs-on: ubuntu-24.04
+    outputs:
+      changed: ${{ steps.resolve.outputs.changed }}
+      sha: ${{ steps.resolve.outputs.sha }}
+      version: ${{ steps.resolve.outputs.version }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Resolve the requested DSH revision
+        id: resolve
+        run: node scripts/set-dsh-source.mjs "${{ github.event.inputs.revision || 'master' }}" --dry-run
+
+  verify:
+    name: Verify upstream revision
+    needs: resolve
+    if: needs.resolve.outputs.changed == 'true'
+    uses: ./.github/workflows/checks.yml
+    with:
+      dsh_revision: ${{ needs.resolve.outputs.sha }}
+
+  commit:
+    name: Pin the verified revision
+    needs: [resolve, verify]
+    if: needs.resolve.outputs.changed == 'true' && needs.verify.result == 'success'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Write the verified DSH pin
+        run: node scripts/set-dsh-source.mjs "${{ needs.resolve.outputs.sha }}"
+
+      - name: Commit and push
+        env:
+          SHA: ${{ needs.resolve.outputs.sha }}
+        run: |
+          SHA12="${SHA:0:12}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add dsh-source.json README.md README.en.md
+          git commit -m "chore(dsh): 同步上游 DSH 到 ${SHA12}"
+          git pull --rebase origin main
+          git push
+
+  report:
+    name: Report upstream breakage
+    needs: [resolve, verify]
+    if: failure() && needs.verify.result == 'failure'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Open or reuse a tracking issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ needs.resolve.outputs.sha }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+        run: |
+          SHA12="${SHA:0:12}"
+          gh label create upstream-sync --description "Automatic DSH upstream sync" --color "1d76db" --force
+          existing=$(gh issue list --state open --label upstream-sync --search "$SHA12" --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            echo "Issue #$existing already tracks $SHA12"
+            exit 0
+          fi
+          gh issue create \
+            --title "chore(dsh): 上游 DSH ${SHA12} 同步失败" \
+            --label upstream-sync \
+            --body "$(printf '%s\n' \
+              "自动同步上游 DeepSeek Harness \`${SHA}\`（${VERSION}）失败。" \
+              "" \
+              "- 验证 run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
+              "- 上游仓库: https://github.com/deepseek-ai/deepseek-harness" \
+              "" \
+              "\`dsh-source.json\` 不会被改写，直到下一次同步在同一套 checks 上全绿。")"

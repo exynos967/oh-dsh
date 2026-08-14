@@ -32,6 +32,7 @@ import { fileURLToPath } from 'node:url'
 import { resolveDshSource, resolvePinnedPnpm } from './dsh-source.mjs'
 import { extractArchive } from './extract-archive.mjs'
 import { resolveNodeTarget } from './node-target.mjs'
+import { prunePnpmStore, rewritePnpmBinShims } from './prune-pnpm-store.mjs'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const dshSource = resolveDshSource()
@@ -530,6 +531,7 @@ function copyWithoutLinks(source, dest) {
  * such as `@deepseek-ai/cosmokit`. Keep isolated deploy + the rewrite
  * passes, then hoist unique realpaths into `node_modules/<name>` and delete
  * the leftover junctions so packaging tools cannot follow workspace cycles.
+ * After hoisting, drop `node_modules/.pnpm` so the store is not shipped twice.
  */
 function flattenWindowsLinks(rootPath) {
   if (!flattenWindowsRuntime) return
@@ -539,7 +541,10 @@ function flattenWindowsLinks(rootPath) {
   console.log(
     `Windows staging: ${directoryLinks.length} directory links / ${links.length} total links under ${rootPath}`,
   )
-  if (links.length === 0) return
+  if (links.length === 0) {
+    dropPnpmStore(rootPath)
+    return
+  }
 
   const groups = new Map()
   for (const link of directoryLinks) {
@@ -607,6 +612,13 @@ function flattenWindowsLinks(rootPath) {
   }
 
   console.log(`Windows staging: hoisted ${hoisted} packages, materialized ${nested} nested copies under ${rootPath}`)
+  dropPnpmStore(rootPath)
+}
+
+function dropPnpmStore(rootPath) {
+  const shims = rewritePnpmBinShims(rootPath)
+  const pruned = prunePnpmStore(rootPath)
+  console.log(`Windows staging: rewrote ${shims} .bin shims, pruned .pnpm=${String(pruned)} under ${rootPath}`)
 }
 
 function assertNoDirectoryLinks(rootPath, label) {
@@ -617,6 +629,14 @@ function assertNoDirectoryLinks(rootPath, label) {
   })
   if (failures.length > 0) {
     throw new Error(`${label} contains directory junctions:\n${failures.slice(0, 40).join('\n')}`)
+  }
+}
+
+function assertNoPnpmStore(rootPath, label) {
+  if (!flattenWindowsRuntime) return
+  const store = join(rootPath, 'node_modules', '.pnpm')
+  if (existsSync(store)) {
+    throw new Error(`${label} still contains node_modules/.pnpm after flatten`)
   }
 }
 
@@ -888,10 +908,12 @@ normalizeRuntimeLinks()
 flattenWindowsLinks(runtime)
 assertSelfContained(runtime, 'DSH runtime')
 assertNoDirectoryLinks(runtime, 'DSH runtime')
+assertNoPnpmStore(runtime, 'DSH runtime')
 ensureNodeRuntime()
 flattenWindowsLinks(nodeRuntime)
 assertSelfContained(nodeRuntime, 'Node runtime')
 assertNoDirectoryLinks(nodeRuntime, 'Node runtime')
+assertNoPnpmStore(nodeRuntime, 'Node runtime')
 ensureLinuxPtyBuild()
 
 const stagedNode = join(nodeRuntime, isWindowsNode ? 'node.exe' : join('bin', 'node'))

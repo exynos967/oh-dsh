@@ -459,10 +459,11 @@ packages macOS arm64, Linux x64, and Windows x64 in parallel. Each
 platform produces the desktop package (DMG/ZIP, AppImage/deb, Windows ZIP)
 and the Oh-DSH-Web package (tar.gz/ZIP). After every job passes, a publish
 job attaches all artifacts to a same-named GitHub Release via
-`gh release create`; any failure blocks the release. You can also click Run workflow in Actions. Enter a tag such as
-`v0.1.3` to publish a GitHub Release pointing at the built commit; leave
-it empty to upload artifacts only. The tag must match the
-`package.json` version (a suffix like `v0.1.3-rc.1` is allowed).
+`gh release create`; any failure blocks the release. You can also click Run workflow in Actions. Enter `auto` to publish a
+GitHub Release at the `package.json` version, or an explicit tag such as
+`v0.1.3` / `v0.1.3-rc.1`. Leave it empty to upload artifacts only. The
+tag must match the `package.json` version (a suffix is allowed). A
+mismatched tag is rejected before packaging starts.
 
 [`dsh-source.json`](dsh-source.json) is maintained by
 [`.github/workflows/sync-upstream.yml`](.github/workflows/sync-upstream.yml).

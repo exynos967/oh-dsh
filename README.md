@@ -431,9 +431,10 @@ smoke:web，跳过 Electron GUI smoke。
 Oh-DSH-Web 发行包（tar.gz/ZIP）。全部 job 通过后，publish job 会用
 `gh release create` 把产物挂到同名 GitHub Release；任何失败都会阻止发布。
 也可以在 Actions 里手动 Run workflow：同样打包并上传 artifact。输入框里
-填写 `v0.1.3` 这类 tag 就会按该 tag 创建 GitHub Release（指向这次构建的
-commit）；留空则只上传 artifact，不发版。tag 必须与
-`package.json` 的 version 一致（允许 `v0.1.3-rc.1` 这种后缀）。
+填 `auto` 会按 `package.json` 的 version 创建 GitHub Release（指向这次
+构建的 commit）；也可以显式填写 `v0.1.3` 或 `v0.1.3-rc.1`。留空则只上传
+artifact，不发版。tag 必须与 `package.json` 的 version 一致（允许后缀）。
+填错的 tag 会在打包前被拒绝。
 
 [`dsh-source.json`](dsh-source.json) 由
 [`.github/workflows/sync-upstream.yml`](.github/workflows/sync-upstream.yml)

@@ -45,6 +45,44 @@ function samePath(left, right) {
   return realpathSync.native(left).toLowerCase() === realpathSync.native(right).toLowerCase()
 }
 
+/** Kill the smoke server and any PTY grandchildren still holding `smokeRoot`. */
+async function stopSmokeChild(child) {
+  if (child.exitCode !== null) return
+  const exited = new Promise(resolve => {
+    const escalate = setTimeout(() => {
+      if (process.platform !== 'win32') child.kill('SIGKILL')
+      resolve()
+    }, 8_000)
+    child.once('exit', () => {
+      clearTimeout(escalate)
+      resolve()
+    })
+    child.once('error', () => {
+      clearTimeout(escalate)
+      resolve()
+    })
+  })
+  if (process.platform === 'win32' && child.pid !== undefined) {
+    spawnSync('taskkill', ['/T', '/F', '/PID', String(child.pid)], { stdio: 'ignore' })
+  } else {
+    child.kill('SIGTERM')
+  }
+  await exited
+}
+
+/** Windows may keep the temp tree locked after PTY/conhost exit; do not fail the smoke for that. */
+function removeSmokeRoot(path) {
+  try {
+    rmSync(path, { recursive: true, force: true, maxRetries: 15, retryDelay: 200 })
+  } catch (error) {
+    if (error && (error.code === 'EPERM' || error.code === 'EBUSY' || error.code === 'ENOTEMPTY')) {
+      console.warn(`smoke cleanup skipped (${error.code}): ${path}`)
+      return
+    }
+    throw error
+  }
+}
+
 /** One boot entry of the DSH client graph. */
 function parseBootEntries(index) {
   const marker = 'window.__DSH_BOOT__ = '
@@ -342,19 +380,6 @@ try {
   console.log('Better Sidebar Host API: ready, session/files/Git verified on the web surface')
   console.log('Better Sidebar terminal PTY: ready, command execution verified on the web surface')
 } finally {
-  if (child.exitCode === null) {
-    child.kill('SIGTERM')
-    await new Promise(resolve => {
-      const escalate = setTimeout(() => { child.kill('SIGKILL') }, 8_000)
-      child.once('exit', () => {
-        clearTimeout(escalate)
-        resolve()
-      })
-      child.once('error', () => {
-        clearTimeout(escalate)
-        resolve()
-      })
-    })
-  }
-  rmSync(smokeRoot, { recursive: true, force: true })
+  await stopSmokeChild(child)
+  removeSmokeRoot(smokeRoot)
 }

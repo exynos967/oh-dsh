@@ -45,4 +45,4 @@ const version = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')).ver
 const archive = join(root, 'release', `Oh-DSH-Desktop-${version}-x64.zip`)
 createArchive(archive, ['win-unpacked'], { cwd: join(root, 'release') })
 if (!existsSync(archive)) throw new Error(`Windows archive was not produced: ${archive}`)
-console.log(`Packaged Oh-DSH-Desktop ${version}: ${archive}`)
+console.log(`Packaged Oh-DSH Desktop ${version}: ${archive}`)

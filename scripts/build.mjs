@@ -50,8 +50,15 @@ const builds = [
   }),
   build({
     ...shared,
-    entryPoints: [join(root, 'src', 'web.ts')],
+    entryPoints: [join(root, 'src', 'web-entry.ts')],
     outfile: join(dist, 'web.js'),
+    platform: 'node',
+    format: 'esm',
+  }),
+  build({
+    ...shared,
+    entryPoints: [join(root, 'src', 'cli.ts')],
+    outfile: join(dist, 'ohdsh.js'),
     platform: 'node',
     format: 'esm',
   }),
@@ -139,5 +146,6 @@ await Promise.all(builds)
 
 copyFileSync(join(root, 'src', 'splash.html'), join(dist, 'splash.html'))
 copyFileSync(join(root, 'cordis.patch.yml'), join(dist, 'cordis.patch.yml'))
+copyFileSync(join(root, 'package.json'), join(dist, 'release-package.json'))
 mkdirSync(join(dist, 'web'), { recursive: true })
 copyFileSync(join(root, 'web', 'cordis.patch.yml'), join(dist, 'web', 'cordis.patch.yml'))

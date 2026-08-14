@@ -27,6 +27,7 @@ import {
   DEFAULT_WEB_PORT,
   main,
   parseLaunchArgs,
+  resolveWebVersion,
   UsageError,
 } from '../src/web.ts'
 
@@ -59,6 +60,47 @@ test('web profile is a separate surface from the desktop profile', () => {
   assert.notEqual(WEB_PROFILE, DESKTOP_PROFILE)
   assert.deepEqual(WEB_BUNDLES, ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', '@oh-dsh/web'])
   assert.equal(WEB_BUNDLES.includes('@oh-dsh/desktop'), false)
+})
+
+test('web client uses the Oh-DSH Web surface name', () => {
+  const client = readFileSync(new URL('../web/src/client.ts', import.meta.url), 'utf8')
+  assert.match(client, /document\.title = 'Oh-DSH Web'/)
+  assert.match(client, /element\.textContent = 'Oh-DSH Web'/)
+  assert.doesNotMatch(client, /Oh-DSH-Web/)
+})
+
+test('packaged web distribution exposes the unified ohdsh command', () => {
+  const build = readFileSync(new URL('../scripts/build-web.mjs', import.meta.url), 'utf8')
+  assert.match(build, /join\(packageDir, 'bin', 'ohdsh'\)/)
+  assert.match(build, /join\(packageDir, 'lib', 'oh-dsh', 'cli\.js'\)/)
+  assert.match(build, /exec "\$ROOT\/bin\/ohdsh" web "\$@"/)
+})
+
+test('full and web-only distributions expose the same release version', () => {
+  const root = mkdtempSync(join(tmpdir(), 'oh-dsh-web-version-'))
+  try {
+    writeFileSync(join(root, 'package.json'), '{"version":"1.2.3"}\n')
+    assert.equal(resolveWebVersion(root), '1.2.3')
+    rmSync(join(root, 'package.json'))
+
+    mkdirSync(join(root, 'lib', 'oh-dsh'), { recursive: true })
+    writeFileSync(
+      join(root, 'lib', 'oh-dsh', 'package.json'),
+      '{"version":"4.5.6"}\n',
+    )
+    assert.equal(resolveWebVersion(root), '4.5.6')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('full distribution keeps app and release manifests distinct', () => {
+  const root = join(dirname(fileURLToPath(import.meta.url)), '..')
+  const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
+  const releaseManifest = manifest.build.extraResources.find(
+    (resource: { to?: string }) => resource.to === 'lib/oh-dsh/package.json',
+  )
+  assert.equal(releaseManifest.from, 'dist/release-package.json')
 })
 
 test('web bundle patch mounts the web-capable Oh-DSH plugins', () => {

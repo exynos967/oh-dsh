@@ -1,10 +1,10 @@
-/** Oh-DSH-Web launcher: boot the packaged web profile and expose its URL. */
+/** Oh-DSH Web launcher: boot the packaged web profile and expose its URL. */
 
 import { spawn } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
-import { fileURLToPath, pathToFileURL } from 'node:url'
+import { fileURLToPath } from 'node:url'
 import { ensureWebProfile, WEB_PROFILE } from './profile.ts'
 import {
   DshRuntimeSupervisor,
@@ -32,7 +32,7 @@ export interface LaunchOptions {
 
 export class UsageError extends Error {}
 
-const USAGE = `usage: oh-dsh-web [options]
+const USAGE = `usage: ohdsh web [options]
 
 Options:
   --host <host>           bind host (default ${DEFAULT_WEB_HOST}; use 0.0.0.0 to expose the UI on the LAN)
@@ -140,12 +140,18 @@ export function resolveWebRoot(env: NodeJS.ProcessEnv = process.env): string {
   return dirname(dirname(fileURLToPath(import.meta.url)))
 }
 
-function versionOf(root: string): string {
-  try {
-    const manifest = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as { version?: unknown }
-    if (typeof manifest.version === 'string') return manifest.version
-  } catch {
-    // A missing manifest is a development layout quirk; fall through.
+/** Read release metadata from a standalone package or an Electron resource. */
+export function resolveWebVersion(root: string): string {
+  for (const path of [
+    join(root, 'package.json'),
+    join(root, 'lib', 'oh-dsh', 'package.json'),
+  ]) {
+    try {
+      const manifest = JSON.parse(readFileSync(path, 'utf8')) as { version?: unknown }
+      if (typeof manifest.version === 'string') return manifest.version
+    } catch {
+      // Try the next supported distribution layout.
+    }
   }
   return '0.0.0'
 }
@@ -170,7 +176,7 @@ function printLine(ring: string[], line: string): void {
 }
 
 /**
- * Boot the Oh-DSH-Web distribution and keep it running until a signal
+ * Boot the Oh-DSH Web distribution and keep it running until a signal
  * arrives. Exits 0 on a clean stop, 1 on runtime failure.
  */
 export async function main(
@@ -196,7 +202,7 @@ export async function main(
     || options.host === '::1'
   if (!loopback && options.trustedHosts.length === 0) {
     throw new UsageError(
-      'exposing Oh-DSH-Web on a non-loopback host requires --trusted-host: '
+      'exposing Oh-DSH Web on a non-loopback host requires --trusted-host: '
       + 'the terminal and workspace APIs are guarded only by the browser trust fence',
     )
   }
@@ -206,7 +212,7 @@ export async function main(
   // Normalize once and derive every runtime path from the absolute root.
   const dataRoot = resolve(options.dataRoot)
   const root = resolveWebRoot(env)
-  const version = versionOf(root)
+  const version = resolveWebVersion(root)
   // Packaged layout: <root>/node-runtime + <root>/dsh-runtime. Development
   // layout: the staged runtimes live under <root>/.stage/.
   const stagedNode = process.platform === 'win32'
@@ -268,7 +274,7 @@ export async function main(
   runtime.on('exit', (exit: RuntimeExit) => {
     if (stopping) return
     process.stderr.write(
-      `Oh-DSH-Web stopped (code=${String(exit.code)}, signal=${String(exit.signal)})\n`
+      `Oh-DSH Web stopped (code=${String(exit.code)}, signal=${String(exit.signal)})\n`
       + `${logTail.slice(-20).join('\n')}\n`,
     )
     process.exit(1)
@@ -276,7 +282,7 @@ export async function main(
 
   try {
     const url = await runtime.start()
-    stdout.write(`Oh-DSH-Web ${version} is running at ${url.href}\n`)
+    stdout.write(`Oh-DSH Web ${version} is running at ${url.href}\n`)
     if (options.open) openBrowser(url.href, process.platform)
     await new Promise<void>(() => {})
     return 0
@@ -286,15 +292,4 @@ export async function main(
     await stop()
     return 1
   }
-}
-
-if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
-  void main(process.argv.slice(2)).then(code => { process.exit(code) }, error => {
-    if (error instanceof UsageError) {
-      process.stderr.write(`${error.message}\n\n${USAGE}`)
-      process.exit(2)
-    }
-    process.stderr.write(`${error instanceof Error ? error.stack ?? error.message : String(error)}\n`)
-    process.exit(1)
-  })
 }

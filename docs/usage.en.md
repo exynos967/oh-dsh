@@ -190,8 +190,8 @@ only checks junction-free staging and `smoke:web`.
 Push a `v*` tag or click Run workflow on
 [release.yml](../.github/workflows/release.yml) to package desktop and Web
 on all three platforms. Enter `auto` to publish a GitHub Release at the
-`package.json` version, or an explicit tag such as `v0.1.3` /
-`v0.1.3-rc.1`. Leave it empty to upload artifacts only. A mismatched tag
+`package.json` version, or an explicit tag such as `v0.1.4` /
+`v0.1.4-rc.1`. Leave it empty to upload artifacts only. A mismatched tag
 is rejected before packaging starts.
 
 [`dsh-source.json`](../dsh-source.json) is maintained daily by

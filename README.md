@@ -14,7 +14,7 @@
   <img alt="Linux" src="https://img.shields.io/badge/Linux-x64-FCC624?logo=linux&logoColor=black">
   <img alt="Windows" src="https://img.shields.io/badge/Windows-x64-0078D6?logo=windows&logoColor=white">
   <img alt="DSH 0.1.0-rc.5" src="https://img.shields.io/badge/DSH-0.1.0--rc.5-2f81f7">
-  <img alt="BSD 3-Clause" src="https://img.shields.io/badge/license-BSD--3--Clause-34a853">
+  <img alt="MIT" src="https://img.shields.io/badge/license-MIT-34a853">
 </p>
 
 <p align="center">
@@ -118,4 +118,4 @@ Web 使用 `pnpm run dist:web`。
 
 ## License
 
-[BSD 3-Clause](./LICENSE)
+[MIT](./LICENSE)

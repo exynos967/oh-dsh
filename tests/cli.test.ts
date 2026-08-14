@@ -1,6 +1,4 @@
 import assert from 'node:assert/strict'
-import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
 import { test } from 'node:test'
 import {
   desktopLaunchSpec,
@@ -70,11 +68,10 @@ test('ohdsh reports the planned TUI without pretending to start it', async () =>
 })
 
 test('desktop launch keeps source and installed macOS paths distinct', () => {
-  const app = '/Applications/Oh-DSH Desktop.app'
   assert.deepEqual(desktopLaunchSpec([], {
-    OH_DSH_DESKTOP_APP: app,
+    OH_DSH_DESKTOP_APP: '/Applications/Oh-DSH Desktop.app',
   }, 'darwin'), {
-    args: [resolve(app)],
+    args: ['/Applications/Oh-DSH Desktop.app'],
     command: '/usr/bin/open',
   })
   assert.deepEqual(desktopLaunchSpec([], {}, 'darwin'), {
@@ -83,14 +80,16 @@ test('desktop launch keeps source and installed macOS paths distinct', () => {
   })
 })
 
-test('desktop launch uses the explicit Windows app path', () => {
-  const app = join(tmpdir(), 'Oh-DSH Desktop.exe')
-  assert.deepEqual(desktopLaunchSpec([], {
-    OH_DSH_DESKTOP_APP: app,
+test('desktop launch resolves paths with target platform semantics', () => {
+  assert.deepEqual(desktopLaunchSpec(['--inspect'], {
+    OH_DSH_DESKTOP_APP: 'C:\\Tools\\Oh-DSH Desktop.exe',
   }, 'win32'), {
-    args: [],
-    command: resolve(app),
+    args: ['--inspect'],
+    command: 'C:\\Tools\\Oh-DSH Desktop.exe',
   })
+})
+
+test('desktop launch falls back to start on Windows without an app path', () => {
   assert.deepEqual(desktopLaunchSpec([], {}, 'win32'), {
     args: ['/d', '/s', '/c', 'start', '""', 'Oh-DSH Desktop.exe'],
     command: 'cmd.exe',

@@ -178,8 +178,9 @@ Linux 与 Windows 上 stage 固定 DSH runtime；Linux 再跑 desktop / web
 推送 `v*` tag 或在 Actions 里手动 Run
 [release.yml](../.github/workflows/release.yml)：三个平台并行打包桌面与
 Web 发行包。输入框填 `auto` 按 `package.json` 的 version 发 GitHub
-Release；也可填 `v0.1.4` / `v0.1.4-rc.1`。留空只上传 artifact。tag 必须
-与 version 一致（允许后缀），填错会在打包前被拒绝。
+Release；也可填 `v0.1.4` / `v0.1.4-rc.1`。留空只上传 artifact。同一 tag
+已存在时勾选 `replace` 会删掉旧 Release 再重建；不勾选会在发布前失败。
+tag 必须与 version 一致（允许后缀），填错会在打包前被拒绝。
 
 [`dsh-source.json`](../dsh-source.json) 由
 [sync-upstream.yml](../.github/workflows/sync-upstream.yml) 每日维护：解析

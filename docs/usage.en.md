@@ -191,8 +191,10 @@ Push a `v*` tag or click Run workflow on
 [release.yml](../.github/workflows/release.yml) to package desktop and Web
 on all three platforms. Enter `auto` to publish a GitHub Release at the
 `package.json` version, or an explicit tag such as `v0.1.4` /
-`v0.1.4-rc.1`. Leave it empty to upload artifacts only. A mismatched tag
-is rejected before packaging starts.
+`v0.1.4-rc.1`. Leave it empty to upload artifacts only. If that tag
+already exists, check `replace` to delete and recreate the Release;
+otherwise publishing fails before upload. A mismatched tag is rejected
+before packaging starts.
 
 [`dsh-source.json`](../dsh-source.json) is maintained daily by
 [sync-upstream.yml](../.github/workflows/sync-upstream.yml). It resolves

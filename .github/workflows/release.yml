@@ -10,6 +10,11 @@ on:
         description: '要发布的 tag。填 auto 按 package.json 发版；或填 vX.Y.Z / vX.Y.Z-rc.1。留空只打包不发 Release'
         required: false
         type: string
+      replace:
+        description: 'tag 已存在时删除旧 Release 再重建（只对手动发版生效）'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -163,7 +168,20 @@ jobs:
           merge-multiple: true
 
       - name: Publish release
-        run: gh release create "${{ needs.validate.outputs.tag }}" artifacts/* --generate-notes --target "${{ github.sha }}"
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          REPLACE: ${{ inputs.replace }}
+          TAG: ${{ needs.validate.outputs.tag }}
+          TARGET: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            if [ "${REPLACE:-false}" != "true" ]; then
+              echo "release $TAG already exists"
+              echo "re-run with replace=true, or leave tag empty to upload artifacts only"
+              exit 1
+            fi
+            gh release delete "$TAG" --yes --cleanup-tag
+          fi
+          gh release create "$TAG" artifacts/* --generate-notes --target "$TARGET"

@@ -71,6 +71,9 @@ test('web client uses the Oh-DSH Web surface name', () => {
 
 test('packaged web distribution exposes the unified ohdsh command', () => {
   const build = readFileSync(new URL('../scripts/build-web.mjs', import.meta.url), 'utf8')
+  const imported = /import \{([^}]+)\} from 'node:fs'/.exec(build)?.[1] ?? ''
+  assert.match(imported, /\breadFileSync\b/)
+  assert.match(build, /readFileSync\(join\(root, 'bin', 'ohdsh'\)/)
   assert.match(build, /join\(packageDir, 'bin', 'ohdsh'\)/)
   assert.match(build, /join\(packageDir, 'lib', 'oh-dsh', 'cli\.js'\)/)
   assert.match(build, /exec "\$ROOT\/bin\/ohdsh" web "\$@"/)

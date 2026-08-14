@@ -4,6 +4,7 @@ SET "ROOT=%~dp0.."
 
 IF EXIST "%ROOT%\node-runtime\node.exe" IF EXIST "%ROOT%\lib\oh-dsh\cli.js" (
   SET "DSH_OH_WEB_ROOT=%ROOT%"
+  SET "DSH_OH_TUI_ROOT=%ROOT%"
   IF EXIST "%ROOT%\..\Oh-DSH Desktop.exe" SET "OH_DSH_DESKTOP_APP=%ROOT%\..\Oh-DSH Desktop.exe"
   "%ROOT%\node-runtime\node.exe" "%ROOT%\lib\oh-dsh\cli.js" %*
   EXIT /B %ERRORLEVEL%

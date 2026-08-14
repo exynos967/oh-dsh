@@ -13,6 +13,7 @@ fi
 
 if [ -n "$PACKAGED_NODE" ] && [ -f "$ROOT/lib/oh-dsh/cli.js" ]; then
   export DSH_OH_WEB_ROOT="$ROOT"
+  export DSH_OH_TUI_ROOT="$ROOT"
   case "$ROOT" in
     */Contents/Resources)
       export OH_DSH_DESKTOP_APP="${ROOT%/Contents/Resources}"

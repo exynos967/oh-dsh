@@ -33,6 +33,7 @@ import { resolveDshSource, resolvePinnedPnpm } from './dsh-source.mjs'
 import { extractArchive } from './extract-archive.mjs'
 import { resolveNodeTarget } from './node-target.mjs'
 import { prunePnpmStore, rewritePnpmBinShims } from './prune-pnpm-store.mjs'
+import { adaptTuiRendererPackage } from './tui-upstream-adapter.mjs'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 const dshSource = resolveDshSource()
@@ -391,6 +392,72 @@ function walk(rootPath, visit) {
 }
 
 /**
+ * fetch-blob 3 imports the deprecated node-domexception shim for Node 12.
+ * Oh-DSH ships Node 26 and supports Node 24+, both of which expose the same
+ * Web-standard DOMException globally. Patch only this reviewed import, then
+ * remove the now-unreferenced shim from the portable runtime.
+ */
+function replaceDeprecatedDomExceptionShim() {
+  const store = join(runtime, 'node_modules', '.pnpm')
+  const dependency = 'node-domexception'
+  const importPattern = /^import DOMException from ['"]node-domexception['"]\r?\n/m
+
+  for (const entry of readdirSync(store, { withFileTypes: true })) {
+    if (!entry.isDirectory() || !entry.name.startsWith('fetch-blob@')) continue
+    const packageDir = join(store, entry.name, 'node_modules', 'fetch-blob')
+    const sourcePath = join(packageDir, 'from.js')
+    const manifestPath = join(packageDir, 'package.json')
+    if (!existsSync(sourcePath) || !existsSync(manifestPath)) continue
+
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+    if (manifest.dependencies?.[dependency] === undefined) continue
+    const source = readFileSync(sourcePath, 'utf8')
+    if (!importPattern.test(source)) {
+      throw new Error('fetch-blob still depends on node-domexception through an unknown import')
+    }
+    writeFileSync(sourcePath, source.replace(importPattern, ''))
+    delete manifest.dependencies[dependency]
+    writeFileSync(manifestPath, JSON.stringify(manifest, undefined, 2) + '\n')
+    rmSync(join(dirname(packageDir), dependency), {
+      recursive: true,
+      force: true,
+    })
+  }
+
+  const hoisted = join(store, 'node_modules', dependency)
+  const consumers = []
+  walk(runtime, path => {
+    if (basename(path) === dependency && path !== hoisted) consumers.push(path)
+  })
+  if (consumers.length > 0) {
+    throw new Error(`cannot remove ${dependency}; staged consumers remain:\n${consumers.join('\n')}`)
+  }
+  rmSync(hoisted, { recursive: true, force: true })
+  for (const entry of readdirSync(store, { withFileTypes: true })) {
+    if (entry.isDirectory() && entry.name.startsWith(`${dependency}@`)) {
+      rmSync(join(store, entry.name), { recursive: true, force: true })
+    }
+  }
+}
+
+function assertDeprecatedLockBranchesAreNotShipped() {
+  const store = join(runtime, 'node_modules', '.pnpm')
+  const forbidden = new Set([
+    'glob@10.5.0',
+    'glob@11.1.0',
+    'node-domexception@1.0.0',
+    'tsconfck@3.1.6',
+  ])
+  const shipped = readdirSync(store, { withFileTypes: true })
+    .filter(entry => entry.isDirectory() && forbidden.has(entry.name))
+    .map(entry => entry.name)
+  if (shipped.length > 0) {
+    throw new Error(`deprecated dependencies remain in the staged runtime: ${shipped.join(', ')}`)
+  }
+  console.log('Dependency audit: deprecated packages from the shared lock are not shipped')
+}
+
+/**
  * Make the staged tree portable: re-create absolute internal links as
  * relative ones and dereference any link still pointing outside the runtime
  * (Windows junctions the `.pnpm` entries to the global store). Dangling
@@ -664,18 +731,40 @@ function resolveDependencyManifest(requireFromPackage, dependency) {
 
 function installCompiledPackageDependencies(sourceManifestPath, packageDir) {
   const installRoot = join(packageDir, 'node_modules')
-  const installed = new Set()
+  const storeRoot = join(installRoot, '.oh-dsh-store')
+  const installed = new Map()
+
+  const instanceName = (manifestPath, manifest) => {
+    const parts = resolve(manifestPath).split(sep)
+    const storeIndex = parts.lastIndexOf('.pnpm')
+    const identity = storeIndex >= 0 && parts[storeIndex + 1] !== undefined
+      ? parts[storeIndex + 1]
+      : `${manifest.name}@${manifest.version}`
+    return identity.replace(/[^A-Za-z0-9._-]/g, '_')
+  }
+
+  const linkDependency = (parent, dependency, target) => {
+    const link = join(parent, 'node_modules', ...dependency.split('/'))
+    mkdirSync(dirname(link), { recursive: true })
+    portableSymlink(relative(dirname(link), target), link)
+  }
 
   const installManifest = manifestPath => {
-    const source = dirname(manifestPath)
-    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
+    const canonicalManifest = realpathSync(manifestPath)
+    const existing = installed.get(canonicalManifest)
+    if (existing !== undefined) return existing
+    const source = dirname(canonicalManifest)
+    const manifest = JSON.parse(readFileSync(canonicalManifest, 'utf8'))
     if (typeof manifest.name !== 'string' || typeof manifest.version !== 'string') {
-      throw new Error(`invalid runtime dependency manifest: ${manifestPath}`)
+      throw new Error(`invalid runtime dependency manifest: ${canonicalManifest}`)
     }
-    const key = `${manifest.name}@${manifest.version}`
-    if (installed.has(key)) return
-    installed.add(key)
-    const target = join(installRoot, ...manifest.name.split('/'))
+    const target = join(
+      storeRoot,
+      instanceName(canonicalManifest, manifest),
+      'node_modules',
+      ...manifest.name.split('/'),
+    )
+    installed.set(canonicalManifest, target)
     rmSync(target, { recursive: true, force: true })
     mkdirSync(dirname(target), { recursive: true })
     cpSync(source, target, {
@@ -688,21 +777,35 @@ function installCompiledPackageDependencies(sourceManifestPath, packageDir) {
       },
     })
 
-    const requireFromPackage = createRequire(manifestPath)
+    const requireFromPackage = createRequire(canonicalManifest)
     for (const [dependency, optional] of dependencyNames(manifest)) {
       try {
-        installManifest(resolveDependencyManifest(requireFromPackage, dependency))
+        const dependencyTarget = installManifest(
+          resolveDependencyManifest(requireFromPackage, dependency),
+        )
+        linkDependency(target, dependency, dependencyTarget)
       } catch (error) {
         if (optional) continue
         throw new Error(`${manifest.name} is missing runtime dependency ${dependency}`, { cause: error })
       }
     }
+    return target
   }
 
   const sourceManifest = JSON.parse(readFileSync(sourceManifestPath, 'utf8'))
   const requireFromSource = createRequire(sourceManifestPath)
-  for (const dependency of Object.keys(sourceManifest.dependencies ?? {})) {
-    installManifest(resolveDependencyManifest(requireFromSource, dependency))
+  for (const [dependency, optional] of dependencyNames(sourceManifest)) {
+    try {
+      const dependencyTarget = installManifest(
+        resolveDependencyManifest(requireFromSource, dependency),
+      )
+      const link = join(installRoot, ...dependency.split('/'))
+      mkdirSync(dirname(link), { recursive: true })
+      portableSymlink(relative(dirname(link), dependencyTarget), link)
+    } catch (error) {
+      if (optional) continue
+      throw new Error(`${sourceManifest.name} is missing runtime dependency ${dependency}`, { cause: error })
+    }
   }
 }
 
@@ -764,6 +867,23 @@ function installDesktopPackages() {
         [join(root, 'dist', 'web', 'cordis.patch.yml'), 'dist/cordis.patch.yml'],
       ],
     },
+    {
+      manifest: join(root, 'upstream', 'dsh-TUI', 'package.json'),
+      files: [
+        [join(root, 'upstream', 'dsh-TUI', 'lib'), 'lib'],
+        [join(root, 'upstream', 'dsh-TUI', 'skills'), 'skills'],
+        [join(root, 'upstream', 'dsh-TUI', 'cordis.patch.yml'), 'cordis.patch.yml'],
+        [join(root, 'upstream', 'dsh-TUI', 'cordis.yml'), 'cordis.yml'],
+        [join(root, 'upstream', 'dsh-TUI', 'LICENSE'), 'LICENSE'],
+      ],
+    },
+    {
+      manifest: join(root, 'plugins', 'tui', 'package.json'),
+      files: [
+        [join(root, 'dist', 'plugins', 'tui', 'index.js'), 'dist/index.js'],
+        [join(root, 'dist', 'plugins', 'tui', 'cordis.patch.yml'), 'dist/cordis.patch.yml'],
+      ],
+    },
   ]
   const installedVersions = {}
   for (const spec of packages) {
@@ -782,8 +902,17 @@ function installDesktopPackages() {
     for (const [source, target] of spec.files) {
       const output = join(packageDir, target)
       mkdirSync(dirname(output), { recursive: true })
-      copyFileSync(source, output)
+      if (lstatSync(source).isDirectory()) {
+        cpSync(source, output, {
+          dereference: true,
+          preserveTimestamps: true,
+          recursive: true,
+        })
+      } else {
+        copyFileSync(source, output)
+      }
     }
+    if (manifest.name === 'dsh-cc-tui') adaptTuiRendererPackage(packageDir)
     installedVersions[manifest.name] = manifest.version
   }
   const cliManifestPath = join(runtime, 'package.json')
@@ -872,6 +1001,8 @@ for (const required of [
   'plugins/pinned-summary/client.js',
   'plugins/plugin-marketplace/index.js',
   'plugins/plugin-marketplace/client.js',
+  'plugins/tui/index.js',
+  'plugins/tui/cordis.patch.yml',
 ]) {
   if (!existsSync(join(root, 'dist', required))) {
     throw new Error(`desktop artifact missing: dist/${required}; run pnpm run build first`)
@@ -884,6 +1015,7 @@ const pnpm = resolvePinnedPnpm(dshSource)
 console.log('Deploying pinned DSH runtime (copy import mode)')
 run(process.execPath, [
   pnpm.cliEntry,
+  '--reporter=silent',
   '--config.package-import-method=copy',
   '--ignore-scripts',
   '--filter', '@deepseek-ai/dsh',
@@ -896,6 +1028,8 @@ run(process.execPath, [
   },
 })
 
+replaceDeprecatedDomExceptionShim()
+assertDeprecatedLockBranchesAreNotShipped()
 console.log('Relinking workspace packages')
 rewriteWorkspaceLinks()
 relinkInstallationWorkspacePackages()

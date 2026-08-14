@@ -21,9 +21,6 @@ jobs:
           - name: macOS arm64
             os: macos-15
             node_architecture: arm64
-          - name: macOS x64
-            os: macos-15-intel
-            node_architecture: x64
           - name: Linux x64
             os: ubuntu-24.04
             node_architecture: x64

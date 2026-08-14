@@ -72,7 +72,7 @@ macOS, Linux, and Windows.
 
 ## Capabilities
 
-- Self-contained Apple Silicon / Intel macOS, Linux x64, and Windows x64 applications and installers.
+- Self-contained Apple Silicon macOS, Linux x64, and Windows x64 applications and installers.
 - Multi-tab PTY Terminal, commit/line Review, Browser, and Files.
 - Review comments attach to the message composer for direct Agent handling.
 - Pinned Summary, expandable Side Panel, and native window controls.
@@ -446,7 +446,7 @@ The bundled Node runtime defaults to the build machine's platform. Set
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml) calls
 [`.github/workflows/checks.yml`](.github/workflows/checks.yml) on every PR
 and main push. It runs install, type check, tests, and the build in parallel
-on macOS arm64, macOS x64, Linux x64, and Windows x64, covering the compile
+on macOS arm64, Linux x64, and Windows x64, covering the compile
 path of every surface on every target platform. Runtime smoke builds and
 stages the pinned DSH runtime on Linux and Windows. Linux then runs the
 assembled desktop and web profiles (smoke:runtime / smoke:web); Windows
@@ -455,7 +455,7 @@ smoke.
 
 Pushing a `v*` tag runs
 [`.github/workflows/release.yml`](.github/workflows/release.yml), which
-packages macOS arm64, macOS x64, Linux x64, and Windows x64 in parallel. Each
+packages macOS arm64, Linux x64, and Windows x64 in parallel. Each
 platform produces the desktop package (DMG/ZIP, AppImage/deb, Windows ZIP)
 and the Oh-DSH-Web package (tar.gz/ZIP). After every job passes, a publish
 job attaches all artifacts to a same-named GitHub Release via

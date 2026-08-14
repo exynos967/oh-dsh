@@ -64,7 +64,7 @@ Summary、Sidebar 与 PTY 终端能力。见 [Oh-DSH-Web 发行版](#oh-dsh-web-
 
 ## 主要能力
 
-- 自包含的 Apple Silicon / Intel macOS 应用与安装包、Linux x64 AppImage / deb、Windows x64 ZIP。
+- 自包含的 Apple Silicon macOS 应用与安装包、Linux x64 AppImage / deb、Windows x64 ZIP。
 - 多标签 PTY Terminal、逐提交/逐行 Review、Browser 和 Files。
 - Review 评论可汇总进消息输入框，直接交给 Agent 处理。
 - Pinned Summary、可展开 Side Panel 与原生窗口控制。
@@ -418,7 +418,7 @@ release/
 
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml) 在每次 PR 与 main
 push 时调用 [`.github/workflows/checks.yml`](.github/workflows/checks.yml)，
-于 macOS arm64、macOS x64、Linux x64、Windows x64 四个平台并行跑
+于 macOS arm64、Linux x64、Windows x64 三个平台并行跑
 安装、typecheck、测试与构建,保证任一形态的编译链路在所有目标平台上都被
 覆盖; Runtime smoke 在 Linux 与 Windows 上完整构建并 stage 固定 DSH
 runtime。Linux 再跑 desktop 与 web 两个 profile 的组装冒烟
@@ -426,7 +426,7 @@ runtime。Linux 再跑 desktop 与 web 两个 profile 的组装冒烟
 smoke:web，跳过 Electron GUI smoke。
 
 推送 `v*` tag 后，[`.github/workflows/release.yml`](.github/workflows/release.yml)
-会在 runner 上并行打包 macOS arm64、macOS x64、Linux x64 与 Windows x64，
+会在 runner 上并行打包 macOS arm64、Linux x64 与 Windows x64，
 每个平台同时产出桌面发行包（DMG/ZIP、AppImage/deb、Windows ZIP）与
 Oh-DSH-Web 发行包（tar.gz/ZIP）。全部 job 通过后，publish job 会用
 `gh release create` 把产物挂到同名 GitHub Release；任何失败都会阻止发布。

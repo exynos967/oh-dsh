@@ -153,6 +153,9 @@ jobs:
     if: needs.validate.outputs.publish == 'true'
     runs-on: ubuntu-24.04
     steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
       - name: Download release artifacts
         uses: actions/download-artifact@v4
         with:
@@ -163,3 +166,4 @@ jobs:
         run: gh release create "${{ needs.validate.outputs.tag }}" artifacts/* --generate-notes --target "${{ github.sha }}"
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}

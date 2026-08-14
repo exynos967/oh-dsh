@@ -14,6 +14,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import electronBinary from 'electron'
 import { bundledRuntimePaths, runtimeSearchPath } from '../src/runtime-paths.ts'
+import { terminalSmokeInput } from './terminal-smoke-input.mjs'
 import {
   BUNDLED_DESKTOP_CLIENT_PLUGINS,
   BUNDLED_DESKTOP_HOST_PLUGINS,
@@ -276,7 +277,7 @@ try {
     }
     socket.addEventListener('open', () => {
       socket.send(JSON.stringify({ type: 'resize', cols: 80, rows: 24 }))
-      socket.send("printf 'OH_DSH_TERMINAL_SMOKE\\n'; exit\r")
+      socket.send(terminalSmokeInput('OH_DSH_TERMINAL_SMOKE'))
     })
     socket.addEventListener('message', (event) => {
       output += String(event.data)

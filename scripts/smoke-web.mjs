@@ -15,6 +15,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { ensureWebProfile, WEB_PROFILE } from '../src/profile.ts'
 import { bundledRuntimePaths, runtimeSearchPath } from '../src/runtime-paths.ts'
+import { terminalSmokeInput } from './terminal-smoke-input.mjs'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -351,9 +352,7 @@ try {
     }
     socket.addEventListener('open', () => {
       socket.send(JSON.stringify({ type: 'resize', cols: 80, rows: 24 }))
-      // Split the marker so the echoed command line never contains it; only
-      // real execution produces `OH_DSH_WEB_TERMINAL_SMOKE`.
-      socket.send("printf '%s%s\\n' OH_DSH_WEB_TERMINAL_ SMOKE; exit\r")
+      socket.send(terminalSmokeInput('OH_DSH_WEB_TERMINAL_SMOKE'))
     })
     socket.addEventListener('message', (event) => {
       output += String(event.data)

@@ -34,10 +34,16 @@ function resolveResources(candidate) {
 const resources = resolveResources(process.argv[2] ?? join(root, '.stage'))
 const paths = bundledRuntimePaths(resources)
 const { cliEntry, nodeBinary } = paths
-const smokeRoot = mkdtempSync(join(tmpdir(), 'oh-dsh-web-smoke-'))
+// Windows CI tmpdir() is often the 8.3 form (`RUNNER~1`); native realpath
+// expands it so later path comparisons match the long names DSH returns.
+const smokeRoot = realpathSync.native(mkdtempSync(join(tmpdir(), 'oh-dsh-web-smoke-')))
 const dshHome = join(smokeRoot, 'dsh-home')
 const webData = join(smokeRoot, 'web-data')
 const lines = []
+
+function samePath(left, right) {
+  return realpathSync.native(left).toLowerCase() === realpathSync.native(right).toLowerCase()
+}
 
 /** One boot entry of the DSH client graph. */
 function parseBootEntries(index) {
@@ -252,7 +258,7 @@ try {
   const workspaceFacts = await workspaceFactsResponse.json()
   assert.equal(workspaceFactsResponse.status, 200)
   assert.equal(workspaceFacts.kind, 'repository')
-  assert.equal(realpathSync(workspaceFacts.root), realpathSync(smokeRoot))
+  assert.equal(samePath(workspaceFacts.root, smokeRoot), true)
 
   // The better-sidebar host serves session, Files, and Git through the same
   // /sidebar API the desktop distribution uses.
@@ -269,9 +275,9 @@ try {
   }
   const sidebarScope = { sessionId: 'web-smoke', cwd: smokeRoot }
   const sessionCwd = await sidebarCall('session.cwd', sidebarScope)
-  assert.equal(sessionCwd.cwd, smokeRoot)
+  assert.equal(samePath(sessionCwd.cwd, smokeRoot), true)
   const workspaceTree = await sidebarCall('fs.tree', sidebarScope)
-  assert.equal(workspaceTree.path, smokeRoot)
+  assert.equal(samePath(workspaceTree.path, smokeRoot), true)
   const gitStatus = await sidebarCall('git.status', sidebarScope)
   assert.equal(gitStatus.isRepo, true)
   assert.ok(gitStatus.entries.some(entry => entry.path === 'web-smoke.txt'))

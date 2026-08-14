@@ -39,6 +39,7 @@ export interface DesktopRuntimeSnapshot {
 
 /** Browser-safe desktop bridge made available through contextBridge. */
 export interface DesktopBridge {
+  readonly platform: NodeJS.Platform
   chooseWorkspace(): Promise<string[]>
   getInfo(): Promise<DesktopInfo>
   getRuntimeSnapshot(): Promise<DesktopRuntimeSnapshot>

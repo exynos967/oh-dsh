@@ -14,6 +14,32 @@ test('desktop client replaces the hero title and keeps the Preview badge', () =>
   assert.doesNotMatch(client, /data-oh-dsh-hero-preview/)
 })
 
+test('Windows and Linux flush the macOS inset titlebar spacer', () => {
+  const main = readFileSync(new URL('../src/main.ts', import.meta.url), 'utf8')
+  const preload = readFileSync(new URL('../src/preload.ts', import.meta.url), 'utf8')
+  assert.match(main, /NATIVE_TITLEBAR_FLUSH_CSS/)
+  assert.match(main, /padding-top: 0 !important;/)
+  assert.match(main, /attachNativeTitlebarFlush\(window\)/)
+  assert.match(preload, /platform: process\.platform/)
+})
+
+test('desktop chrome reserves an inset titlebar only on macOS', () => {
+  const client = readFileSync(new URL('../src/client.ts', import.meta.url), 'utf8')
+  assert.match(client, /html\[data-oh-dsh-desktop='true'\] \{\s*--oh-dsh-titlebar-height: 0px;/s)
+  assert.match(
+    client,
+    /html\[data-oh-dsh-desktop='true'\]\[data-oh-dsh-inset-titlebar='true'\] \{\s*--oh-dsh-titlebar-height: \$\{DESKTOP_TITLEBAR_HEIGHT\}px;/s,
+  )
+  assert.match(
+    client,
+    /html\[data-oh-dsh-desktop='true'\]\[data-oh-dsh-inset-titlebar='true'\] body::before/,
+  )
+  assert.match(
+    client,
+    /function usesInsetTitlebar\(\): boolean \{\s*return window\.dshDesktop\?\.platform === 'darwin'/s,
+  )
+})
+
 test('desktop Settings stays below portaled menus and above desktop surfaces', () => {
   const client = readFileSync(
     new URL('../src/client.ts', import.meta.url),

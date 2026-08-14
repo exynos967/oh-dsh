@@ -209,6 +209,27 @@ function windowIconPath(): string | undefined {
   return existsSync(development) ? development : undefined
 }
 
+/** Windows/Linux keep the native frame; kill the macOS inset spacer if a stale client still injects it. */
+const NATIVE_TITLEBAR_FLUSH_CSS = `
+html[data-oh-dsh-desktop='true'] {
+  --oh-dsh-titlebar-height: 0px !important;
+}
+html[data-oh-dsh-desktop='true'] body {
+  padding-top: 0 !important;
+}
+html[data-oh-dsh-desktop='true'] body::before {
+  display: none !important;
+  height: 0 !important;
+}
+`
+
+function attachNativeTitlebarFlush(window: BrowserWindow): void {
+  if (process.platform === 'darwin') return
+  window.webContents.on('did-finish-load', () => {
+    void window.webContents.insertCSS(NATIVE_TITLEBAR_FLUSH_CSS)
+  })
+}
+
 function createWindow(options: { preview?: boolean; title?: string } = {}): BrowserWindow {
   const icon = windowIconPath()
   const window = new BrowserWindow({
@@ -232,6 +253,7 @@ function createWindow(options: { preview?: boolean; title?: string } = {}): Brow
       webviewTag: true,
     },
   })
+  attachNativeTitlebarFlush(window)
   window.webContents.setZoomFactor(DEFAULT_UI_ZOOM_FACTOR)
   window.once('ready-to-show', () => { window.show() })
   window.on('closed', () => {

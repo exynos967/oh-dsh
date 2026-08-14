@@ -39,6 +39,10 @@ const DESKTOP_TITLEBAR_HEIGHT = 40
 
 const DESKTOP_CHROME_CSS = `
 html[data-oh-dsh-desktop='true'] {
+  --oh-dsh-titlebar-height: 0px;
+}
+
+html[data-oh-dsh-desktop='true'][data-oh-dsh-inset-titlebar='true'] {
   --oh-dsh-titlebar-height: ${DESKTOP_TITLEBAR_HEIGHT}px;
 }
 
@@ -47,7 +51,7 @@ html[data-oh-dsh-desktop='true'] body {
   padding-top: var(--oh-dsh-titlebar-height);
 }
 
-html[data-oh-dsh-desktop='true'] body::before {
+html[data-oh-dsh-desktop='true'][data-oh-dsh-inset-titlebar='true'] body::before {
   content: '';
   position: fixed;
   z-index: 2147483647;
@@ -141,6 +145,11 @@ const DESKTOP_SHELL_MESSAGES: LocaleMessages<DesktopShellMessage> = {
   },
 }
 
+/** hiddenInset lives only on macOS; Windows/Linux keep the native frame. */
+function usesInsetTitlebar(): boolean {
+  return window.dshDesktop?.platform === 'darwin'
+}
+
 function installDesktopChrome(): () => void {
   const originalTitle = document.title
   const style = document.createElement('style')
@@ -148,10 +157,14 @@ function installDesktopChrome(): () => void {
   style.textContent = DESKTOP_CHROME_CSS
   document.head.append(style)
   document.documentElement.dataset.ohDshDesktop = 'true'
+  if (usesInsetTitlebar()) {
+    document.documentElement.dataset.ohDshInsetTitlebar = 'true'
+  }
   document.title = 'Oh-DSH Desktop'
   return () => {
     style.remove()
     delete document.documentElement.dataset.ohDshDesktop
+    delete document.documentElement.dataset.ohDshInsetTitlebar
     document.title = originalTitle
   }
 }
